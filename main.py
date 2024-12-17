@@ -12,10 +12,14 @@ import time
 api_key = 'YOUR_BINANCE_API_KEY'
 api_secret = 'YOUR_BINANCE_SECRET_KEY'
 symbol = 'BTC/USDT'
-trade_amount = 0.001  # Amount to trade in BTC
-interval = '1m'  # 1-minute timeframe
-lookback = 50  # Number of candles for analysis
-train_size = 1000  # Number of rows for training
+interval = '1m'
+lookback = 50
+train_size = 1000
+simulation_mode = True  # Set to False for live trading
+# Double represents percentage; eg. 2.0 = 2%
+stop_loss_percent = 2.0  # Stop-loss percentage
+take_profit_percent = 3.0  # Take-profit percentage
+position_size_percent = 5.0  # Trade size as a percentage of balance
 
 # Initialize Binance Exchange
 exchange = ccxt.binance({
@@ -24,14 +28,12 @@ exchange = ccxt.binance({
     'enableRateLimit': True
 })
 
-
 # Function to fetch OHLCV data
 def fetch_data():
     ohlcv = exchange.fetch_ohlcv(symbol, timeframe=interval, limit=train_size + lookback)
     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     return df
-
 
 # Add technical indicators
 def add_indicators(df):
@@ -40,13 +42,12 @@ def add_indicators(df):
     macd = MACD(df['close'])
     df['macd'] = macd.macd()
     df['macd_signal'] = macd.macd_signal()
-    df.dropna(inplace=True)  # Remove NaN values after adding indicators
+    df.dropna(inplace=True)
     return df
-
 
 # Train ML model
 def train_model(df):
-    df['target'] = np.where(df['close'].shift(-1) > df['close'], 1, 0)  # 1 = price up, 0 = price down
+    df['target'] = np.where(df['close'].shift(-1) > df['close'], 1, 0)
     features = ['rsi', 'sma', 'macd', 'macd_signal']
     X = df[features]
     y = df['target']
@@ -59,9 +60,15 @@ def train_model(df):
     print(f"Model Accuracy: {accuracy:.2f}")
     return model
 
+# Risk management: Calculate position size
+def calculate_position_size():
+    balance = 1000 if simulation_mode else exchange.fetch_balance()['USDT']['free']
+    position_size = (position_size_percent / 100) * balance
+    return round(position_size, 6)
 
-# Live trading logic
+# Live trading logic with stop-loss and take-profit
 def live_trading(model):
+    positions = []
     while True:
         try:
             print("Fetching live data...")
@@ -71,31 +78,46 @@ def live_trading(model):
             # Predict on latest row
             features = df[['rsi', 'sma', 'macd', 'macd_signal']].iloc[-1:].values
             prediction = model.predict(features)[0]
+            latest_close = df['close'].iloc[-1]
+            position_size = calculate_position_size()
 
-            # Execute buy/sell based on prediction
             if prediction == 1:  # Price expected to rise
                 print("Prediction: BUY")
-                order = exchange.create_market_buy_order(symbol, trade_amount)
-                print("BUY Order Executed:", order)
-            else:  # Price expected to fall
-                print("Prediction: SELL")
-                order = exchange.create_market_sell_order(symbol, trade_amount)
-                print("SELL Order Executed:", order)
+                entry_price = latest_close
+                stop_loss = entry_price * (1 - stop_loss_percent / 100)
+                take_profit = entry_price * (1 + take_profit_percent / 100)
 
-            time.sleep(60)  # Wait 1 minute before the next prediction
+                if simulation_mode:
+                    print(f"SIMULATION - BUY @ {entry_price}, Stop-Loss: {stop_loss}, Take-Profit: {take_profit}")
+                else:
+                    order = exchange.create_market_buy_order(symbol, position_size)
+                    print("LIVE BUY Order Executed:", order)
+                positions.append({'side': 'buy', 'entry_price': entry_price, 'stop_loss': stop_loss, 'take_profit': take_profit})
+
+            # Check stop-loss/take-profit
+            for pos in positions[:]:
+                current_price = latest_close
+                if pos['side'] == 'buy' and (current_price <= pos['stop_loss'] or current_price >= pos['take_profit']):
+                    if simulation_mode:
+                        print(f"SIMULATION - SELL @ {current_price} (Exit Trade: Stop-Loss/Take-Profit Hit)")
+                    else:
+                        order = exchange.create_market_sell_order(symbol, position_size)
+                        print("LIVE SELL Order Executed:", order)
+                    positions.remove(pos)
+
+            time.sleep(60)  # Wait 1 minute before the next iteration
+
         except Exception as e:
             print(f"Error: {e}")
             time.sleep(60)
 
-
 # Main Function
 def main():
-    print("Starting Cryptocurrency Auto-Trading Bot...")
+    print("Starting Cryptocurrency Auto-Trading Bot with Risk Management...")
     df = fetch_data()
     df = add_indicators(df)
     model = train_model(df)
     live_trading(model)
-
 
 if __name__ == "__main__":
     main()
