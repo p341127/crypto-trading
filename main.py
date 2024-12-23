@@ -23,7 +23,7 @@ pair = "XBTUSD"  # Trading pair: BTC/USD on Kraken
 lookback = 50  # Number of candles to use
 stop_loss_percent = 2.0  # Stop-loss percentage
 take_profit_percent = 3.0  # Take-profit percentage
-position_size = 10.0  # Simulated trade size in USD
+position_size = 100.0  # Simulated trade size in USD
 log_file = "trading_log.json"
 trade_history_file = "trade_history.csv"
 

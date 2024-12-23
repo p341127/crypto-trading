@@ -1,4 +1,10 @@
 {
-    "balance": 1000.0,
-    "positions": []
+    "balance": 10225.400000000009,
+    "positions": [
+        {
+            "entry_price": 94639.4,
+            "stop_loss": 92746.612,
+            "take_profit": 97478.582
+        }
+    ]
 }
